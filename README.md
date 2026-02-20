@@ -2,20 +2,20 @@
 <html lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>المشروع المساحي الذكي - ملعب 3D</title>
+<title>المشروع المساحي الذكي - ملاعب 3D واقعية</title>
 <style>
 body { font-family: Arial, sans-serif; background:#eef2f3; text-align:center; margin:0; padding:0;}
 h1 { color:#2c3e50; margin:20px 0; }
 input, button { margin:10px; padding:10px; font-size:16px; }
-#results { margin:20px auto; width:90%; max-width:800px; border-collapse: collapse;}
+#results { margin:20px auto; width:95%; max-width:900px; border-collapse: collapse;}
 #results th, #results td { border:1px solid #333; padding:8px; }
 #results th { background:#2c3e50; color:white; }
-#render3D { width:90%; height:500px; margin:20px auto; border:2px solid #333; }
+#render3D { width:95%; height:600px; margin:20px auto; border:2px solid #333; }
 #downloadLink { display:block; margin-top:15px; font-weight:bold; color:blue; text-decoration:none; }
 </style>
 </head>
 <body>
-<h1>المشروع المساحي الذكي - ملعب 3D</h1>
+<h1>المشروع المساحي الذكي - ملاعب 3D واقعية</h1>
 <input type="file" id="fileInput" accept=".xlsx">
 <button onclick="processFile()">رفع الملف وحساب المشروع</button>
 <a id="downloadLink" style="display:none" download="output.xlsx">تحميل النتائج</a>
@@ -31,6 +31,8 @@ input, button { margin:10px; padding:10px; font-size:16px; }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+
 <script>
 function processFile() {
     const input = document.getElementById('fileInput');
@@ -43,11 +45,10 @@ function processFile() {
         const sheet = workbook.Sheets[sheetName];
         const json = XLSX.utils.sheet_to_json(sheet);
 
-        // حساب Cut & Fill لكل نقطة
         json.forEach(row => {
             const elevation = parseFloat(row['Elevation'] || row['الارتفاع'] || 0);
             const area = parseFloat(row['Area'] || row['مساحة'] || 1);
-            row['Cut/Fill'] = (elevation - 1.5) * area; 
+            row['Cut/Fill'] = (elevation - 1.5) * area;
         });
 
         displayTable(json);
@@ -86,31 +87,37 @@ function createDownload(data) {
 function generate3D(data) {
     document.getElementById('render3D').innerHTML='';
     const width = document.getElementById('render3D').clientWidth;
-    const height = 500;
+    const height = 600;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xbfd1e5);
 
     const camera = new THREE.PerspectiveCamera(45,width/height,0.1,1000);
-    camera.position.set(0,20,30);
+    camera.position.set(25,20,25);
     camera.lookAt(0,0,0);
 
     const renderer = new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(width,height);
     document.getElementById('render3D').appendChild(renderer.domElement);
 
-    // الإضاءة
     const light = new THREE.DirectionalLight(0xffffff,1);
-    light.position.set(20,40,20);
+    light.position.set(30,50,30);
     scene.add(light);
     scene.add(new THREE.AmbientLight(0x404040));
 
-    // أرضية الملعب (عشب)
-    const groundGeo = new THREE.BoxGeometry(20,0.2,12);
+    // أرضية العشب الأساسية
+    const groundGeo = new THREE.BoxGeometry(30,0.2,20);
     const groundMat = new THREE.MeshLambertMaterial({color:0x28a745});
     const ground = new THREE.Mesh(groundGeo, groundMat);
     scene.add(ground);
 
-    // خطوط كرة القدم
+    // ملاعب متعددة
+    // كرة القدم
+    const footballGeo = new THREE.BoxGeometry(20,0.1,12);
+    const footballMat = new THREE.MeshLambertMaterial({color:0x228B22});
+    const football = new THREE.Mesh(footballGeo, footballMat);
+    football.position.set(0,0.1,0);
+    scene.add(football);
+
     const lineMat = new THREE.LineBasicMaterial({color:0xffffff});
     const linePoints = [
         new THREE.Vector3(-10,0.11,-6), new THREE.Vector3(10,0.11,-6),
@@ -118,25 +125,35 @@ function generate3D(data) {
         new THREE.Vector3(-10,0.11,-6)
     ];
     const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
-    const line = new THREE.Line(lineGeo,lineMat);
-    scene.add(line);
+    scene.add(new THREE.Line(lineGeo,lineMat));
 
     // ملعب تنس
     const tennisGeo = new THREE.BoxGeometry(6,0.05,3);
     const tennisMat = new THREE.MeshLambertMaterial({color:0xfff0a0});
     const tennisCourt = new THREE.Mesh(tennisGeo, tennisMat);
-    tennisCourt.position.set(0,0.12,4.5);
+    tennisCourt.position.set(0,0.12,8);
     scene.add(tennisCourt);
 
     // حمام سباحة
-    const poolGeo = new THREE.BoxGeometry(4,0.1,2);
+    const poolGeo = new THREE.BoxGeometry(5,0.1,3);
     const poolMat = new THREE.MeshLambertMaterial({color:0x1ca3ec});
     const pool = new THREE.Mesh(poolGeo,poolMat);
-    pool.position.set(-6,0.15,3);
+    pool.position.set(-10,0.15,5);
     scene.add(pool);
 
-    // نقاط البيانات من جدول الميزانية
-    data.forEach((row,i) => {
+    // أشجار حول الملعب
+    const treeGeo = new THREE.ConeGeometry(0.5,2,8);
+    const treeMat = new THREE.MeshLambertMaterial({color:0x006400});
+    for(let i=-12;i<=12;i+=6){
+        for(let j=-10;j<=10;j+=5){
+            const tree = new THREE.Mesh(treeGeo,treeMat);
+            tree.position.set(i,1,j);
+            scene.add(tree);
+        }
+    }
+
+    // نقاط البيانات
+    data.forEach((row,i)=>{
         const elev = parseFloat(row['Elevation']||row['الارتفاع']||0);
         const geometry = new THREE.SphereGeometry(0.3,16,16);
         const material = new THREE.MeshLambertMaterial({color:0xff0000});
@@ -149,10 +166,8 @@ function generate3D(data) {
     function animate() { requestAnimationFrame(animate); renderer.render(scene,camera); }
     animate();
 
-    // تحريك الكاميرا بالماوس
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
 }
 </script>
-<script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
 </body>
 </html>
