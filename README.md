@@ -1,183 +1,158 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>Survey Project Complete</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+<title>المشروع المساحي الذكي - ملعب 3D</title>
 <style>
-body { font-family: Arial, sans-serif; background:#f0f8ff; text-align:center; margin:0; padding:0; }
-h1 { color:#1f3b4d; margin:20px; }
-input, select, button { margin:10px; padding:10px; font-size:16px; border-radius:5px; border:1px solid #333; cursor:pointer; }
-table { margin:20px auto; border-collapse:collapse; width:90%; max-width:800px; box-shadow:0 0 10px rgba(0,0,0,0.2);}
-th, td { border:1px solid #333; padding:8px 12px; text-align:center; }
-th { background:#1f3b4d; color:white; }
-tr:nth-child(even) { background:#e6f2ff; }
-tr:hover { background:#cce6ff; }
-#map, #render3D { width:80%; height:400px; margin:20px auto; border:2px solid #333; border-radius:10px; }
+body { font-family: Arial, sans-serif; background:#eef2f3; text-align:center; margin:0; padding:0;}
+h1 { color:#2c3e50; margin:20px 0; }
+input, button { margin:10px; padding:10px; font-size:16px; }
+#results { margin:20px auto; width:90%; max-width:800px; border-collapse: collapse;}
+#results th, #results td { border:1px solid #333; padding:8px; }
+#results th { background:#2c3e50; color:white; }
+#render3D { width:90%; height:500px; margin:20px auto; border:2px solid #333; }
+#downloadLink { display:block; margin-top:15px; font-weight:bold; color:blue; text-decoration:none; }
 </style>
 </head>
 <body>
-<h1>Survey Project Complete</h1>
+<h1>المشروع المساحي الذكي - ملعب 3D</h1>
+<input type="file" id="fileInput" accept=".xlsx">
+<button onclick="processFile()">رفع الملف وحساب المشروع</button>
+<a id="downloadLink" style="display:none" download="output.xlsx">تحميل النتائج</a>
 
-<label for="projectType">Choose Project Type:</label>
-<select id="projectType" onchange="updateMapIcon(); update3DModel();">
-  <option value="Stadium">Stadium</option>
-  <option value="School">School</option>
-  <option value="Building">Building</option>
-</select>
+<table id="results" style="display:none;">
+<thead>
+<tr><th>رقم النقطة</th><th>الارتفاع</th><th>مساحة</th><th>الحفر/الردم</th></tr>
+</thead>
+<tbody></tbody>
+</table>
 
-<br>
-<input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
-<button onclick="loadFiles()">Load Project Data</button>
-
-<div id="map"></div>
-<div id="tableContainer"></div>
 <div id="render3D"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// ====== Google Maps ======
-let map, marker;
-const defaultCenter = { lat: 26.1648, lng: 32.7168 };
-
-function initMap() {
-  map = new google.maps.Map(document.getElementById("map"), { zoom: 16, center: defaultCenter });
-  marker = new google.maps.Marker({ position: defaultCenter, map: map, title: "Project Location", draggable: true });
-  marker.addListener('dragend', function() {
-    const pos = marker.getPosition();
-    console.log("New Location: ", pos.lat(), pos.lng());
-  });
-}
-
-function updateMapIcon() {
-  const type = document.getElementById('projectType').value;
-  let iconColor = type === "Stadium" ? "http://maps.google.com/mapfiles/ms/icons/green-dot.png" :
-                  type === "School" ? "http://maps.google.com/mapfiles/ms/icons/blue-dot.png" :
-                  "http://maps.google.com/mapfiles/ms/icons/red-dot.png";
-  marker.setIcon(iconColor);
-}
-
-// ====== Excel Merge, Traverse & Cut/Fill ======
-let mergedData = [];
-
-function loadFiles() {
-  const files = document.getElementById('fileInput').files;
-  if(files.length === 0) { alert("Please select files"); return; }
-  
-  mergedData = [];
-  let filesLoaded = 0;
-
-  Array.from(files).forEach(file => {
+function processFile() {
+    const input = document.getElementById('fileInput');
+    if(!input.files[0]) { alert('اختر ملف Excel أولاً'); return; }
     const reader = new FileReader();
     reader.onload = function(e) {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, {type:'array'});
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(sheet, {header:1});
-      processExcelData(jsonData);
-      filesLoaded++;
-      if(filesLoaded === files.length) displayTable(mergedData);
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, {type:'array'});
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet);
+
+        // حساب Cut & Fill لكل نقطة
+        json.forEach(row => {
+            const elevation = parseFloat(row['Elevation'] || row['الارتفاع'] || 0);
+            const area = parseFloat(row['Area'] || row['مساحة'] || 1);
+            row['Cut/Fill'] = (elevation - 1.5) * area; 
+        });
+
+        displayTable(json);
+        generate3D(json);
+        createDownload(json);
     };
-    reader.readAsArrayBuffer(file);
-  });
+    reader.readAsArrayBuffer(input.files[0]);
 }
 
-function processExcelData(data){
-  const headers = data[0];
-  for(let i=1; i<data.length; i++){
-    const row = data[i];
-    let obj = {};
-    headers.forEach((h, idx) => { obj[h] = row[idx]; });
-
-    // تصحيح الترافيرس: Angle, Distance
-    obj["Corrected Angle"] = obj.Angle || 0;
-    obj["Corrected Distance"] = obj.Distance || 0;
-
-    // حساب Cut & Fill
-    obj["Cut/Fill"] = calculateCutFill(obj);
-
-    mergedData.push(obj);
-  }
+function displayTable(data) {
+    const tbody = document.querySelector('#results tbody');
+    tbody.innerHTML = '';
+    data.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${row['Point']||row['رقم النقطة']}</td>
+                        <td>${row['Elevation']||row['الارتفاع']}</td>
+                        <td>${row['Area']||row['مساحة']}</td>
+                        <td>${row['Cut/Fill'].toFixed(2)}</td>`;
+        tbody.appendChild(tr);
+    });
+    document.getElementById('results').style.display='table';
 }
 
-function calculateCutFill(row){
-  if(!row.Elevation) return 0;
-  const cut = Math.max(...mergedData.map(r=>r.Elevation || 0)) - row.Elevation;
-  const fill = row.Elevation - Math.min(...mergedData.map(r=>r.Elevation || 0));
-  return (cut>fill? cut : fill).toFixed(2);
+function createDownload(data) {
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Results');
+    const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([wbout], {type:'application/octet-stream'});
+    const url = URL.createObjectURL(blob);
+    const link = document.getElementById('downloadLink');
+    link.href = url;
+    link.style.display='block';
 }
 
-function displayTable(data){
-  const container = document.getElementById('tableContainer');
-  container.innerHTML = '';
-  const table = document.createElement('table');
+function generate3D(data) {
+    document.getElementById('render3D').innerHTML='';
+    const width = document.getElementById('render3D').clientWidth;
+    const height = 500;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xbfd1e5);
 
-  if(data.length ===0) return;
-  const headers = Object.keys(data[0]);
-  const trHead = document.createElement('tr');
-  headers.forEach(h => { const th = document.createElement('th'); th.innerText = h; trHead.appendChild(th); });
-  table.appendChild(trHead);
+    const camera = new THREE.PerspectiveCamera(45,width/height,0.1,1000);
+    camera.position.set(0,20,30);
+    camera.lookAt(0,0,0);
 
-  data.forEach(row => {
-    const tr = document.createElement('tr');
-    headers.forEach(h => { const td = document.createElement('td'); td.innerText = row[h] || ""; tr.appendChild(td); });
-    table.appendChild(tr);
-  });
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(width,height);
+    document.getElementById('render3D').appendChild(renderer.domElement);
 
-  container.appendChild(table);
+    // الإضاءة
+    const light = new THREE.DirectionalLight(0xffffff,1);
+    light.position.set(20,40,20);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    // أرضية الملعب (عشب)
+    const groundGeo = new THREE.BoxGeometry(20,0.2,12);
+    const groundMat = new THREE.MeshLambertMaterial({color:0x28a745});
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    scene.add(ground);
+
+    // خطوط كرة القدم
+    const lineMat = new THREE.LineBasicMaterial({color:0xffffff});
+    const linePoints = [
+        new THREE.Vector3(-10,0.11,-6), new THREE.Vector3(10,0.11,-6),
+        new THREE.Vector3(10,0.11,6), new THREE.Vector3(-10,0.11,6),
+        new THREE.Vector3(-10,0.11,-6)
+    ];
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
+    const line = new THREE.Line(lineGeo,lineMat);
+    scene.add(line);
+
+    // ملعب تنس
+    const tennisGeo = new THREE.BoxGeometry(6,0.05,3);
+    const tennisMat = new THREE.MeshLambertMaterial({color:0xfff0a0});
+    const tennisCourt = new THREE.Mesh(tennisGeo, tennisMat);
+    tennisCourt.position.set(0,0.12,4.5);
+    scene.add(tennisCourt);
+
+    // حمام سباحة
+    const poolGeo = new THREE.BoxGeometry(4,0.1,2);
+    const poolMat = new THREE.MeshLambertMaterial({color:0x1ca3ec});
+    const pool = new THREE.Mesh(poolGeo,poolMat);
+    pool.position.set(-6,0.15,3);
+    scene.add(pool);
+
+    // نقاط البيانات من جدول الميزانية
+    data.forEach((row,i) => {
+        const elev = parseFloat(row['Elevation']||row['الارتفاع']||0);
+        const geometry = new THREE.SphereGeometry(0.3,16,16);
+        const material = new THREE.MeshLambertMaterial({color:0xff0000});
+        const sphere = new THREE.Mesh(geometry,material);
+        sphere.position.set((i%10)-5, elev/10, Math.floor(i/10)-2);
+        scene.add(sphere);
+    });
+
+    // Render loop
+    function animate() { requestAnimationFrame(animate); renderer.render(scene,camera); }
+    animate();
+
+    // تحريك الكاميرا بالماوس
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
 }
-
-// ====== Three.js 3D Visualization ======
-let scene, camera, renderer, model;
-
-function init3D() {
-  const container = document.getElementById('render3D');
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xe6f2ff);
-
-  camera = new THREE.PerspectiveCamera(45, container.clientWidth/container.clientHeight, 0.1, 1000);
-  camera.position.set(0, 50, 100);
-
-  renderer = new THREE.WebGLRenderer({ antialias:true });
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  container.appendChild(renderer.domElement);
-
-  const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(50, 100, 50);
-  scene.add(light);
-
-  const ambient = new THREE.AmbientLight(0x888888);
-  scene.add(ambient);
-
-  add3DModel();
-  animate();
-}
-
-function add3DModel() {
-  if(model) scene.remove(model);
-
-  const type = document.getElementById('projectType').value;
-  let geometry = type==="Stadium"? new THREE.CylinderGeometry(20,20,5,32):
-                 type==="School"? new THREE.BoxGeometry(30,10,20):
-                 new THREE.BoxGeometry(20,20,20);
-
-  const material = new THREE.MeshPhongMaterial({ color: type==="Stadium"?0x00ff00:type==="School"?0x0000ff:0xff0000, shininess:50 });
-  model = new THREE.Mesh(geometry, material);
-  model.position.y = geometry.parameters.height/2;
-  scene.add(model);
-}
-
-function update3DModel() { add3DModel(); }
-
-function animate() {
-  requestAnimationFrame(animate);
-  if(model) model.rotation.y += 0.01;
-  renderer.render(scene, camera);
-}
-
-window.addEventListener('load', ()=>{ init3D(); });
 </script>
-
-<script async src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap"></script>
+<script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
 </body>
 </html>
